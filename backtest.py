@@ -22,7 +22,7 @@ class DailySnapshot:
     next_date: pd.Timestamp
     universe: list[str]
 
-    # PCA block
+    # PCA
     correlation_matrix: pd.DataFrame
     eigenvalues: np.ndarray
     eigenvectors: pd.DataFrame
@@ -30,12 +30,12 @@ class DailySnapshot:
     factor_returns_window: pd.DataFrame
     stock_returns_window: pd.DataFrame
 
-    # Regression / OU block
+    # Regression / OU
     residuals_window: pd.DataFrame
     x_process_window: pd.DataFrame
     ou_table: pd.DataFrame
 
-    # Signal / portfolio block
+    # Signal / portfolio 
     full_score: pd.Series
     target_states: pd.Series
     target_weights: pd.Series
@@ -62,7 +62,7 @@ class BacktestResult:
     diagnostics: pd.DataFrame
     raw_returns: pd.DataFrame
 
-    # Diagnostics / introspection
+    # Diagnostics 
     snapshots: Dict[pd.Timestamp, DailySnapshot]
 
     # Contribution analysis
@@ -151,9 +151,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
         date = returns.index[t_idx]
         next_date = returns.index[t_idx + 1]
 
-        # ----------------------------
-        # 1) PCA estimation window
-        # ----------------------------
+        # PCA estimation window
         pca_window = get_rolling_window(returns, end_idx=t_idx, lookback=config.pca_window)
         pca_window = filter_complete_assets(pca_window)
 
@@ -204,9 +202,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
             current_weights = new_weights
             continue
 
-        # ----------------------------
-        # 2) PCA block
-        # ----------------------------
+        # PCA
         pca_res = run_pca_factor_model(
             returns_window=pca_window,
             mode=config.pca_mode,
@@ -214,9 +210,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
             explained_variance_target=config.explained_variance_target,
         )
 
-        # ----------------------------
-        # 3) Last 60 days for regression / OU block
-        # ----------------------------
+        # Last 60 days for regression / OU 
         ou_stock_window = pca_window.iloc[-config.ou_window:].copy()
         factor_returns_window = pca_res.factor_returns.iloc[-config.ou_window:].copy()
 
@@ -238,9 +232,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
             center_means_cross_sectionally=True,
         )
 
-        # ----------------------------
-        # 4) Full score on the whole universe
-        # ----------------------------
+        # Full score on the whole universe
         full_score = pd.Series(np.nan, index=all_assets, dtype=float)
 
         if not ou_table.empty:
@@ -250,9 +242,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
             if not usable.empty:
                 full_score.loc[usable.index] = usable[score_col]
 
-        # ----------------------------
-        # 5) Signals
-        # ----------------------------
+        # Signals
         new_states = generate_target_states(
             score_series=full_score,
             current_states=current_states,
@@ -261,9 +251,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
 
         trade_count = compute_trade_count(current_states, new_states)
 
-        # ----------------------------
-        # 6) Portfolio weights
-        # ----------------------------
+        # Portfolio weights
         new_weights = states_to_weights(
             states=new_states,
             long_leverage=config.long_leverage,
@@ -272,9 +260,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
 
         turnover = compute_turnover(current_weights, new_weights)
 
-        # ----------------------------
-        # 7) Next-day PnL attribution
-        # ----------------------------
+        # Next-day PnL attribution
         next_ret = returns.iloc[t_idx + 1].reindex(all_assets).fillna(0.0)
         asset_contrib = (new_weights * next_ret).astype(float)
 
@@ -285,9 +271,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
 
         equity *= (1.0 + net_ret)
 
-        # ----------------------------
-        # 8) Save histories
-        # ----------------------------
+        # Save histories
         state_history[date] = new_states
         weight_history[date] = new_weights
         score_history[date] = full_score
@@ -320,9 +304,7 @@ def run_backtest(prices: pd.DataFrame, config: StrategyConfig) -> BacktestResult
             "trade_count": trade_count,
         })
 
-        # ----------------------------
-        # 9) Store optional snapshot
-        # ----------------------------
+        # Snapshot
         if _should_store_snapshot(date, config, snapshot_date_set):
             snapshots[date] = DailySnapshot(
                 date=date,

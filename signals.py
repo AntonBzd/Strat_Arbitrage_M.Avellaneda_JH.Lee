@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from config_old import StrategyConfig
+from config import StrategyConfig
 
 
 def next_position_from_score(

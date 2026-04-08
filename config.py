@@ -35,7 +35,7 @@ class StrategyConfig:
     use_modified_score: bool = False
     allow_reentry_same_day: bool = False
 
-    # Snapshot / diagnostics controls
+    # Snapshot controls
     store_snapshots: bool = False
     snapshot_dates: Optional[list[str]] = None
     snapshot_start: Optional[str] = None
