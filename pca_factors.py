@@ -85,7 +85,7 @@ def run_pca_factor_model(
     explained_variance_target: float = 0.55,
 ) -> PCAResult:
     """
-    returns_window: DataFrame (dates x assets) sans NaN sur les actifs utilisés.
+    returns_window: DataFrame (dates x assets).
     """
     standardized = standardize_returns_window(returns_window)
     aligned_assets = standardized.columns
@@ -95,7 +95,7 @@ def run_pca_factor_model(
     eigvals, eigvecs = eigen_decompose_correlation(corr)
 
     explained_var = eigvals / np.sum(eigvals)
-    cum_explained = np.cumsum(explained_var) # donne bien la trace de la matrice ? 
+    cum_explained = np.cumsum(explained_var) 
 
     n_factors = select_number_of_factors(
         eigenvalues=eigvals,
@@ -104,7 +104,7 @@ def run_pca_factor_model(
         explained_variance_target=explained_variance_target,
     )
 
-    asset_vols = raw_returns.std(axis=0, ddof=1) # donne bien la vol par stock ?
+    asset_vols = raw_returns.std(axis=0, ddof=1)
     factor_weights = build_eigenportfolio_weights(
         eigenvectors=eigvecs,
         asset_vols=asset_vols,
