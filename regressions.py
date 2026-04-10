@@ -15,18 +15,16 @@ class RegressionResult:
     fitted: pd.Series
     residuals: pd.Series
     x_process: pd.Series
+    x_process_ou_window: pd.Series
 
 
 def fit_factor_regression(
     stock_returns: pd.Series,
     factor_returns: pd.DataFrame,
     dt_years: float = 1.0 / 252.0,
+    ou_window: int = None,
 ) -> RegressionResult:
-    """
-    Régression :
-    R_stock = beta0 + beta1 F1 + ... + betam Fm + epsilon
-    Puis X_k = cumulative sum of residuals
-    """
+
     y = stock_returns.rename("stock").astype(float)
     X = factor_returns.astype(float).copy()
 
@@ -52,6 +50,14 @@ def fit_factor_regression(
     x_process = residuals.cumsum()
     x_process.name = "x_process"
 
+    if ou_window is not None and ou_window < len(residuals):
+        residuals_ou = residuals.iloc[-ou_window:]
+        x_process_ou = residuals_ou.cumsum()
+        x_process_ou.name = "x_process_ou"
+    else:
+        x_process_ou = x_process.copy()
+        x_process_ou.name = "x_process_ou"
+
     return RegressionResult(
         alpha_daily=alpha_daily,
         alpha_annual=alpha_daily / dt_years,
@@ -59,6 +65,7 @@ def fit_factor_regression(
         fitted=fitted,
         residuals=residuals,
         x_process=x_process,
+        x_process_ou_window=x_process_ou,
     )
 
 
@@ -66,19 +73,19 @@ def fit_residual_models(
     stock_returns_window: pd.DataFrame,
     factor_returns_window: pd.DataFrame,
     dt_years: float = 1.0 / 252.0,
+    ou_window: int = None,
 ) -> Dict[str, RegressionResult]:
     results: Dict[str, RegressionResult] = {}
 
     for ticker in stock_returns_window.columns:
         stock_series = stock_returns_window[ticker].dropna()
-        # if len(stock_series) < 10:
-        #     continue
 
         try:
             res = fit_factor_regression(
                 stock_returns=stock_series,
                 factor_returns=factor_returns_window,
                 dt_years=dt_years,
+                ou_window=ou_window,
             )
             results[ticker] = res
         except Exception:
