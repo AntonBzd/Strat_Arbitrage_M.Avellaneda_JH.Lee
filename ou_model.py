@@ -29,15 +29,12 @@ def fit_ou_from_x(
 ) -> OUEstimate:
     x = x_series.dropna().astype(float)
 
-    if len(x) < 1:
+    if len(x) < 10:
         return OUEstimate(
             a=np.nan, b=np.nan, kappa=np.nan, m_raw=np.nan,
             sigma=np.nan, sigma_eq=np.nan, tau_days=np.nan,
             var_zeta=np.nan, current_x=np.nan, is_valid=False
         )
-
-    x_lag = x.shift(1).dropna()
-    x_now = x.loc[x_lag.index]
 
     x_next = x.iloc[1:]
     x_prev = x.iloc[:-1]
@@ -79,7 +76,8 @@ def fit_ou_from_x(
     m_raw = a / (1.0 - b)
     sigma_eq = np.sqrt(var_zeta / (1.0 - b**2))
     sigma = np.sqrt(var_zeta * 2.0 * kappa / (1.0 - b**2))
-    tau_days = 252.0 / kappa
+
+    tau_days = 252.0 / kappa # Characteristic reversion time, not a true half-life.
 
     is_valid = (
         np.isfinite(m_raw)
@@ -90,17 +88,28 @@ def fit_ou_from_x(
     )
 
     return OUEstimate(
-        a=a,
-        b=b,
-        kappa=kappa,
-        m_raw=m_raw,
-        sigma=sigma,
-        sigma_eq=sigma_eq,
-        tau_days=tau_days,
-        var_zeta=var_zeta,
-        current_x=float(x.iloc[-1]),
-        is_valid=is_valid,
+        a=a, b=b, kappa=kappa, m_raw=m_raw,
+        sigma=sigma, sigma_eq=sigma_eq, tau_days=tau_days,
+        var_zeta=var_zeta, current_x=float(x.iloc[-1]), is_valid=is_valid,
     )
+
+
+def _apply_bayesian_shrinkage(df: pd.DataFrame, shrinkage_strength: float) -> pd.DataFrame:
+    valid = df["is_valid"].copy()
+    lam = shrinkage_strength
+
+    if valid.any():
+        kappa_prior = df.loc[valid, "kappa"].median()
+        df.loc[valid, "kappa"] = (1 - lam) * df.loc[valid, "kappa"] + lam * kappa_prior
+        df.loc[valid, "tau_days"] = 252.0 / df.loc[valid, "kappa"]
+
+    df.loc[valid, "m_raw"] = (1 - lam) * df.loc[valid, "m_raw"]
+
+    if valid.any():
+        seq_prior = df.loc[valid, "sigma_eq"].median()
+        df.loc[valid, "sigma_eq"] = (1 - lam) * df.loc[valid, "sigma_eq"] + lam * seq_prior
+
+    return df
 
 
 def build_ou_signal_table(
@@ -108,11 +117,13 @@ def build_ou_signal_table(
     dt_years: float = 1.0 / 252.0,
     max_mean_reversion_days: float = 30.0,
     center_means_cross_sectionally: bool = True,
+    use_bayesian_shrinkage: bool = False,
+    shrinkage_strength: float = 0.3,
 ) -> pd.DataFrame:
     rows = []
 
     for ticker, reg in regression_results.items():
-        ou = fit_ou_from_x(reg.x_process, dt_years=dt_years)
+        ou = fit_ou_from_x(reg.x_process_ou_window, dt_years=dt_years)
 
         rows.append({
             "ticker": ticker,
@@ -135,6 +146,9 @@ def build_ou_signal_table(
 
     df = pd.DataFrame(rows).set_index("ticker")
 
+    if use_bayesian_shrinkage and shrinkage_strength > 0:
+        df = _apply_bayesian_shrinkage(df, shrinkage_strength)
+
     if center_means_cross_sectionally:
         mean_m = df.loc[df["is_valid"], "m_raw"].mean()
         df["m"] = df["m_raw"] - mean_m
@@ -142,11 +156,12 @@ def build_ou_signal_table(
         df["m"] = df["m_raw"]
 
     df["is_fast"] = df["tau_days"] < max_mean_reversion_days
-
     df["s_score"] = (df["current_x"] - df["m"]) / df["sigma_eq"]
 
     tau_years = df["tau_days"] / 252.0
-    df["modified_s_score"] = df["s_score"] - (df["alpha_annual"] * tau_years / df["sigma_eq"])
+    df["modified_s_score"] = (
+        df["s_score"] - (df["alpha_annual"] * tau_years / df["sigma_eq"])
+    )
 
     finite_cols = ["s_score", "modified_s_score", "sigma_eq", "kappa", "tau_days"]
     df["is_usable"] = df["is_valid"] & df["is_fast"]
